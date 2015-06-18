@@ -4,12 +4,11 @@
 #include <SPI.h>
 #include "RF24.h"
 
-byte addresses[][6] = {"1Node","2Node"};
-RF24 radio(9,8);
+#define DEBUG 1
 
-#define role_pin 2
+byte addresses[][7] = {"ampBot","ampCtl"};
+
 typedef enum { role_ping_out = 1, role_pong_back } role_e;                 // The various roles supported by this sketch
-const char* role_friendly_name[] = { "invalid", "Ping out", "Pong back"};  // The debug-friendly names of those roles
 role_e role ;      
 
 /**
@@ -21,30 +20,23 @@ struct dataStruct{
   unsigned long _micros;
   int xin;
   int yin;
-  boolean btn;
 }myData;
 
 
+RF24 radio(9,8); //also miso/mosi at 11/12/13
+#define role_pin 2
 ///////  remote /////////////
-#include <Bounce2.h> // https://github.com/thomasfredericks/Bounce-Arduino-Wiring
-Bounce bouncer = Bounce();
-uint8_t snsVal[] = {0, 0, 0, 0, 0}; //int>byte array (hi and low for anlog and one byte for btn) AX,AY,btn;
-int xout, yout, btnout;
-int x2pwm, y2pwm ;
-int leftMotorSpeed, rightMotorSpeed;
-#define BTN_pin 7
 #define AX_pin A0
 #define AY_pin A1
+///////// motor /////////////
+int inApin[2] = {A3, 6};  // INA: Clockwise input
+//had to change inBpin from the default  8,9 
+//beacuse of conflict with NRF24 wiring // on the nano side :/
+int inBpin[2] = {7, 10}; // INB: Counter-clockwise input
+int pwmpin[2] = {3, 5}; // PWM input
 
-/// motor shield init
-#define BRAKEVCC 0
-#define CW 1
-#define CCW 2
-#define BRAKEGND 3
-#define CS_THRESHOLD 100
-int inApin[2] = {7, 4};  // INA: Clockwise input
-int inBpin[2] = {10, 11}; // INB: Counter-clockwise input
-int pwmpin[2] = {5, 6}; // PWM input
+int x2pwm, y2pwm;
+int leftMotorSpeed, rightMotorSpeed;
 
 void setup() {
   Serial.begin(115200);
@@ -72,32 +64,25 @@ void setup() {
     Serial << "im a controller!" << endl;
   }
 
-if(role==role_pong_back)
-{
-    // Initialize motor pins as outputs
-    for (int i = 0; i < 2; i++)
-    {
-      pinMode(inApin[i], OUTPUT);
-      pinMode(inBpin[i], OUTPUT);
-      pinMode(pwmpin[i], OUTPUT);
+  if(role==role_pong_back)
+  {
+      // Initialize motor pins as outputs
+      for (int i = 0; i < 2; i++)
+      {
+        pinMode(inApin[i], OUTPUT);
+        pinMode(inBpin[i], OUTPUT);
+        pinMode(pwmpin[i], OUTPUT);
+      }
+      // Initialize braked
+      for (int i = 0; i < 2; i++)
+      {
+        digitalWrite(inApin[i], LOW);
+        digitalWrite(inBpin[i], LOW);
+      }
+    }else if(role == role_ping_out){
+      pinMode(AX_pin, INPUT);
+      pinMode(AY_pin, INPUT);
     }
-    // Initialize braked
-    for (int i = 0; i < 2; i++)
-    {
-      digitalWrite(inApin[i], LOW);
-      digitalWrite(inBpin[i], LOW);
-    }
-  }else if(role == role_ping_out){
-    pinMode(AX_pin, INPUT);
-    pinMode(AY_pin, INPUT);
-    pinMode(BTN_pin, INPUT);
-    digitalWrite(BTN_pin, HIGH);
-    // Bounce object with a 20 millisecond debounce time
-
-    bouncer.attach(BTN_pin);
-    bouncer.interval(20);
-    }
-
 }
 
 
@@ -107,18 +92,19 @@ void loop() {
   if (role == role_ping_out)  {
     myData.xin = analogRead(AX_pin);
     myData.yin = analogRead(AY_pin);
-    myData.btn = bouncer.read();
 
-     if (radio.write( &myData, sizeof(myData) )){
-       //Serial.println(F("all good"));
-     }
+    bool ok = radio.write( &myData, sizeof(myData) );
+    if (ok)
+      Serial << "transfer OK  \n\r";
+    else
+      Serial << "transfer failed \n\r";
   }
 
 
 
 /****************** Pong Back Role ***************************/
 
-  if ( role == role_pong_back )
+  else if ( role == role_pong_back )
   {
     
     if( radio.available()){
@@ -126,15 +112,54 @@ void loop() {
       while (radio.available()) {                          // While there is data ready
         radio.read( &myData, sizeof(myData) );             // Get the payload
       }
-     
-      //radio.stopListening();                               // First, stop listening so we can talk  
-      //myData.value += 0.01;                                // Increment the float value
-      //radio.write( &myData, sizeof(myData) );              // Send the final one back.      
-      //radio.startListening();                              // Now, resume listening so we catch the next packets.     
-      Serial<<"x:"<<myData.xin<<"  y:"<<myData.yin<<"  btn:"<<myData.btn<<endl;
+      //process data
+      x2pwm = map(myData.xin, 0, 1024, 255, -255);
+      y2pwm = map(myData.yin, 0, 1024, 255, -255);
+
+      leftMotorSpeed = constrain(y2pwm + x2pwm, -255, 255);
+      rightMotorSpeed = constrain(y2pwm - x2pwm, -255, 255);
+
+      if (myData.xin == 518) 
+        stop(0);
+      else
+        move(0, leftMotorSpeed); 
+      
+      if (myData.yin == 521)
+        stop(1);
+      else
+        move(1, rightMotorSpeed);
+
+      if(DEBUG) Serial<<"left:"<<leftMotorSpeed<<"  right:"<<rightMotorSpeed<<endl; delay(4);
+      if(DEBUG) Serial<<"x:"<<myData.xin<<"  y:"<<myData.yin<<endl; delay(4);
    }
  }
 
 
-
+  delay(100); //pause comm, tweak!
 } // Loop
+
+
+// motor functions
+void move(int motor, int speed) {
+      if (speed < 0)
+        {
+        digitalWrite(inApin[motor], HIGH);
+        digitalWrite(inBpin[motor], LOW); 
+        }
+      else{ 
+        digitalWrite(inApin[motor], LOW);
+        digitalWrite(inBpin[motor], HIGH);
+      }
+
+      analogWrite(pwmpin[motor], abs(speed));
+}
+
+
+void stop(int motor) {
+  digitalWrite(inApin[motor], LOW);
+  digitalWrite(inBpin[motor], LOW);
+  analogWrite(pwmpin[motor], 0);
+
+}
+
+
