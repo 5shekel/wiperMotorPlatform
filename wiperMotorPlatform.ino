@@ -53,7 +53,7 @@ void setup() {
     radio.openReadingPipe(1, addresses[0]);
     radio.startListening();
   
-    Serial << "im a bot!" << endl;
+    if(DEBUG) Serial << "im a bot!" << endl;
   } else {
     role = role_ping_out;
 
@@ -61,7 +61,7 @@ void setup() {
     radio.openReadingPipe(1, addresses[1]);
     radio.stopListening();
 
-    Serial << "im a controller!" << endl;
+    if(DEBUG) Serial << "im a controller!" << endl;
   }
 
   if(role==role_pong_back)
@@ -90,14 +90,19 @@ void loop() {
 /****************** Ping Out Role ***************************/  
 
   if (role == role_ping_out)  {
+    
     myData.xin = analogRead(AX_pin);
+    if(myData.xin == 517){ myData.xin = 518;} //terrible hack.
     myData.yin = analogRead(AY_pin);
 
     bool ok = radio.write( &myData, sizeof(myData) );
+    if(DEBUG) Serial<<"xin:"<<myData.xin<<"  yin:"<<myData.yin<<endl; 
+    /*
     if (ok)
       Serial << "transfer OK  \n\r";
     else
       Serial << "transfer failed \n\r";
+    */  
   }
 
 
@@ -119,7 +124,7 @@ void loop() {
       leftMotorSpeed = constrain(y2pwm + x2pwm, -255, 255);
       rightMotorSpeed = constrain(y2pwm - x2pwm, -255, 255);
 
-      if (myData.xin == 518) 
+      if (myData.xin == 518 )
         stop(0);
       else
         move(0, leftMotorSpeed); 
