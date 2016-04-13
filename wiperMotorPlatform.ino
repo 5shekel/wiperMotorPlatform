@@ -6,31 +6,31 @@
 
 #define DEBUG 1
 
-byte addresses[][7] = {"ampBot","ampCtl"};
+byte addresses[][7] = {"ampBot", "ampCtl"};
 
 typedef enum { role_ping_out = 1, role_pong_back } role_e;                 // The various roles supported by this sketch
-role_e role ;      
+role_e role ;
 
 /**
-* Create a data structure for transmitting and receiving data
-* This allows many variables to be easily sent and received in a single transmission
-* See http://www.cplusplus.com/doc/tutorial/structures/
+  Create a data structure for transmitting and receiving data
+  This allows many variables to be easily sent and received in a single transmission
+  See http://www.cplusplus.com/doc/tutorial/structures/
 */
-struct dataStruct{
+struct dataStruct {
   unsigned long _micros;
   int xin;
   int yin;
-}myData;
+} myData;
 
 
-RF24 radio(9,8); //also miso/mosi at 11/12/13
+RF24 radio(9, 8); //also miso/mosi at 11/12/13
 #define role_pin 2
 ///////  remote /////////////
 #define AX_pin A0
 #define AY_pin A1
 ///////// motor /////////////
 int inApin[2] = {A3, 6};  // INA: Clockwise input
-//had to change inBpin from the default  8,9 
+//had to change inBpin from the default  8,9
 //beacuse of conflict with NRF24 wiring // on the nano side :/
 int inBpin[2] = {7, 10}; // INB: Counter-clockwise input
 int pwmpin[2] = {3, 5}; // PWM input
@@ -40,7 +40,7 @@ int leftMotorSpeed, rightMotorSpeed;
 
 void setup() {
   Serial.begin(115200);
-  radio.begin();  
+  radio.begin();
 
   pinMode(role_pin, INPUT);
   digitalWrite(role_pin, HIGH);
@@ -52,8 +52,8 @@ void setup() {
     radio.openWritingPipe(addresses[1]);
     radio.openReadingPipe(1, addresses[0]);
     radio.startListening();
-  
-    if(DEBUG) Serial << "im a bot!" << endl;
+
+    if (DEBUG) Serial << "im a bot!" << endl;
   } else {
     role = role_ping_out;
 
@@ -61,59 +61,61 @@ void setup() {
     radio.openReadingPipe(1, addresses[1]);
     radio.stopListening();
 
-    if(DEBUG) Serial << "im a controller!" << endl;
+    if (DEBUG) Serial << "im a controller!" << endl;
   }
 
-  if(role==role_pong_back)
+  if (role == role_pong_back)
   {
-      // Initialize motor pins as outputs
-      for (int i = 0; i < 2; i++)
-      {
-        pinMode(inApin[i], OUTPUT);
-        pinMode(inBpin[i], OUTPUT);
-        pinMode(pwmpin[i], OUTPUT);
-      }
-      // Initialize braked
-      for (int i = 0; i < 2; i++)
-      {
-        digitalWrite(inApin[i], LOW);
-        digitalWrite(inBpin[i], LOW);
-      }
-    }else if(role == role_ping_out){
-      pinMode(AX_pin, INPUT);
-      pinMode(AY_pin, INPUT);
+    // Initialize motor pins as outputs
+    for (int i = 0; i < 2; i++)
+    {
+      pinMode(inApin[i], OUTPUT);
+      pinMode(inBpin[i], OUTPUT);
+      pinMode(pwmpin[i], OUTPUT);
     }
+    // Initialize braked
+    for (int i = 0; i < 2; i++)
+    {
+      digitalWrite(inApin[i], LOW);
+      digitalWrite(inBpin[i], LOW);
+    }
+  } else if (role == role_ping_out) {
+    pinMode(AX_pin, INPUT);
+    pinMode(AY_pin, INPUT);
+  }
 }
 
 
 void loop() {
-/****************** Ping Out Role ***************************/  
+  /****************** Ping Out Role ***************************/
 
   if (role == role_ping_out)  {
-    
+
     myData.xin = analogRead(AX_pin);
-    if(myData.xin == 517){ myData.xin = 518;} //terrible hack.
+    if (myData.xin == 517) {
+      myData.xin = 518; //terrible hack.
+    }
     myData.yin = analogRead(AY_pin);
 
     bool ok = radio.write( &myData, sizeof(myData) );
-    if(DEBUG) Serial<<"xin:"<<myData.xin<<"  yin:"<<myData.yin<<endl; 
+    if (DEBUG) Serial << "xin:" << myData.xin << "  yin:" << myData.yin << endl;
     /*
-    if (ok)
+      if (ok)
       Serial << "transfer OK  \n\r";
-    else
+      else
       Serial << "transfer failed \n\r";
-    */  
+    */
   }
 
 
 
-/****************** Pong Back Role ***************************/
+  /****************** Pong Back Role ***************************/
 
   else if ( role == role_pong_back )
   {
-    
-    if( radio.available()){
-                                                           // Variable for the received timestamp
+
+    if ( radio.available()) {
+      // Variable for the received timestamp
       while (radio.available()) {                          // While there is data ready
         radio.read( &myData, sizeof(myData) );             // Get the payload
       }
@@ -124,20 +126,21 @@ void loop() {
       leftMotorSpeed = constrain(y2pwm + x2pwm, -255, 255);
       rightMotorSpeed = constrain(y2pwm - x2pwm, -255, 255);
 
-      if (myData.xin == 518 )
-        stop(0);
-      else
-        move(0, leftMotorSpeed); 
-      
-      if (myData.yin == 521)
-        stop(1);
-      else
-        move(1, rightMotorSpeed);
+      move(1, rightMotorSpeed);
+      move(0, leftMotorSpeed);
 
-      if(DEBUG) Serial<<"left:"<<leftMotorSpeed<<"  right:"<<rightMotorSpeed<<endl; delay(4);
-      if(DEBUG) Serial<<"x:"<<myData.xin<<"  y:"<<myData.yin<<endl; delay(4);
-   }
- }
+      if (myData.xin == 518 && myData.yin == 521) {
+        stop(0);
+        stop(1);
+        if (DEBUG) Serial << "im down:" << endl;
+
+      } else {
+        if (DEBUG) Serial << "left:" << leftMotorSpeed << "  right:" << rightMotorSpeed << endl;
+        if (DEBUG) Serial << "inY :" << myData.yin <<     "    inX:" << myData.xin << endl;
+      }
+      delay(4);
+    }
+  }
 
 
   delay(100); //pause comm, tweak!
@@ -146,17 +149,17 @@ void loop() {
 
 // motor functions
 void move(int motor, int speed) {
-      if (speed < 0)
-        {
-        digitalWrite(inApin[motor], HIGH);
-        digitalWrite(inBpin[motor], LOW); 
-        }
-      else{ 
-        digitalWrite(inApin[motor], LOW);
-        digitalWrite(inBpin[motor], HIGH);
-      }
+  if (speed < 0)
+  {
+    digitalWrite(inApin[motor], HIGH);
+    digitalWrite(inBpin[motor], LOW);
+  }
+  else {
+    digitalWrite(inApin[motor], LOW);
+    digitalWrite(inBpin[motor], HIGH);
+  }
 
-      analogWrite(pwmpin[motor], abs(speed));
+  analogWrite(pwmpin[motor], abs(speed));
 }
 
 
